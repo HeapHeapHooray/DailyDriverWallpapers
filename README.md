@@ -41,6 +41,8 @@ cd ~/DailyDriverWallpapers
 Usage: install.sh [OPTIONS]
 
 Options:
+  -a, --all, --all-monitors
+                     Apply wallpapers to all connected monitors (default: primary monitor only)
   -d, --dir <DIR>    Custom directory for wallpapers (default: ~/DailyDriverWallpapers)
   -h, --help         Show this help message
 ```

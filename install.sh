@@ -22,14 +22,18 @@ fi
 PLUGIN_ID="luisbocanegra.smart.video.wallpaper.reborn"
 PLUGIN_FALLBACK_URL="https://github.com/luisbocanegra/plasma-smart-video-wallpaper-reborn/releases/download/v2.16.0/plasma-smart-video-wallpaper-reborn-v2.16.0.tar.gz"
 
+ALL_MONITORS=false
+
 print_usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
 Clone DailyDriverWallpapers into the home directory, install the Smart Video Wallpaper
-Reborn KDE Plasma plugin, and configure the video wallpapers on the primary monitor.
+Reborn KDE Plasma plugin, and configure the video wallpapers on your monitor(s).
 
 Options:
+  -a, --all, --all-monitors
+                     Apply wallpapers to all connected monitors (default: primary monitor only)
   -d, --dir <DIR>    Custom directory for wallpapers (default: ~/DailyDriverWallpapers)
   -h, --help         Show this help message
 EOF
@@ -38,6 +42,10 @@ EOF
 # Parse options
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        -a|--all|--all-monitors)
+            ALL_MONITORS=true
+            shift
+            ;;
         -d|--dir)
             if [[ -z "${2:-}" ]]; then
                 echo "Error: --dir requires a path argument." >&2
@@ -91,7 +99,7 @@ echo ""
 echo "==> [2/4] Setting up wallpapers directory at $TARGET_DIR..."
 if [[ -d "$TARGET_DIR/.git" ]]; then
     echo "--> Existing git repository found at $TARGET_DIR. Updating..."
-    git -C "$TARGET_DIR" pull --rebase
+    git -C "$TARGET_DIR" pull --rebase 2>/dev/null || echo "--> Note: Skipped git update (local changes present or offline). Using local repository files."
 elif [[ -d "$TARGET_DIR" ]]; then
     echo "--> Directory $TARGET_DIR already exists (non-git). Keeping existing files..."
 else
@@ -163,9 +171,13 @@ else
     echo "--> Plugin successfully installed."
 fi
 
-# Step 4: Configure wallpaper on primary monitor only
+# Step 4: Configure wallpaper on monitor(s)
 echo ""
-echo "==> [4/4] Setting video wallpapers on the primary monitor..."
+if [[ "$ALL_MONITORS" == true ]]; then
+    echo "==> [4/4] Setting video wallpapers on all connected monitors..."
+else
+    echo "==> [4/4] Setting video wallpapers on the primary monitor..."
+fi
 
 python3 - <<PYEOF
 import glob
@@ -177,6 +189,7 @@ import sys
 target_dir = os.path.expanduser("$TARGET_DIR")
 qdbus_bin = "$QDBUS_BIN"
 plugin_id = "$PLUGIN_ID"
+all_monitors = "$ALL_MONITORS" == "true"
 
 # Gather all supported video files
 extensions = ("*.mp4", "*.webm", "*.mkv", "*.mov", "*.avi")
@@ -205,13 +218,14 @@ for path in video_paths:
 
 video_urls_json_str = json.dumps(json.dumps(video_entries))
 
-# In KDE Plasma, screen 0 represents the primary monitor containment.
+js_condition = "true" if all_monitors else "d.screen === 0"
+
 js_script = f"""
 let allDesktops = desktops();
 let configuredCount = 0;
 for (let i = 0; i < allDesktops.length; i++) {{
     let d = allDesktops[i];
-    if (d.screen === 0) {{
+    if ({js_condition}) {{
         d.wallpaperPlugin = "{plugin_id}";
         d.currentConfigGroup = ["Wallpaper", "{plugin_id}", "General"];
         d.writeConfig("VideoUrls", {video_urls_json_str});
@@ -221,7 +235,7 @@ for (let i = 0; i < allDesktops.length; i++) {{
         configuredCount++;
     }}
 }}
-print("Configured " + configuredCount + " primary monitor desktop(s).");
+print("Configured " + configuredCount + " desktop(s).");
 """
 
 res = subprocess.run([qdbus_bin, "org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell.evaluateScript", js_script], capture_output=True, text=True)
@@ -234,9 +248,15 @@ output = res.stdout.strip()
 print(f"--> {output}")
 PYEOF
 
+if [[ "$ALL_MONITORS" == true ]]; then
+    MONITOR_DESC="all connected monitors"
+else
+    MONITOR_DESC="your primary monitor"
+fi
+
 echo ""
 echo "=================================================="
 echo "==> All done! Smart Video Wallpaper Reborn is now"
-echo "    active on your primary monitor with videos from:"
+echo "    active on $MONITOR_DESC with videos from:"
 echo "    $TARGET_DIR"
 echo "=================================================="
